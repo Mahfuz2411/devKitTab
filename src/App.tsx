@@ -1,4 +1,4 @@
-import { Plus, Settings, Wand2, Info, GripVertical, X } from 'lucide-react'
+import { Plus, Settings, Wand2, Info, GripVertical, MoreVertical } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { SidebarButton } from '@/components/SidebarButton'
@@ -29,6 +29,14 @@ interface DragState {
   offsetY: number
 }
 
+interface ResizeState {
+  id: string
+  startX: number
+  startY: number
+  startWidth: number
+  startHeight: number
+}
+
 function App() {
   const [showAbout, setShowAbout] = useState(false)
   const [showWidgets, setShowWidgets] = useState(false)
@@ -36,6 +44,8 @@ function App() {
   const [editMode, setEditMode] = useState(false)
   const [dragState, setDragState] = useState<DragState | null>(null)
   const canvasRef = useRef<HTMLDivElement | null>(null)
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const [resizeState, setResizeState] = useState<ResizeState | null>(null)
 
   const addWidget = (type: string) => {
     const size = widgetSizeByType[type] ?? { width: 280, height: 180 }
@@ -55,23 +65,55 @@ function App() {
       },
     ])
     setShowWidgets(false)
+    setEditMode(true)
   }
 
   const removeWidget = (id: string) => {
     setWidgets((prev) => prev.filter((w) => w.id !== id))
   }
 
-  const beginDrag = (event: ReactMouseEvent<HTMLDivElement>, widget: Widget) => {
+  const duplicateWidget = (id: string) => {
+    setWidgets((prev) => {
+      const src = prev.find((p) => p.id === id)
+      if (!src) return prev
+      const copy = {
+        ...src,
+        id: `${Date.now()}-${Math.random()}`,
+        x: Math.min(src.x + 24, (canvasRef.current?.clientWidth ?? 800) - src.width),
+        y: Math.min(src.y + 24, (canvasRef.current?.clientHeight ?? 600) - src.height),
+      }
+      return [...prev, copy]
+    })
+    setOpenMenuId(null)
+  }
+
+  const beginDrag = (event: ReactMouseEvent<HTMLElement>, widget: Widget) => {
     if (!editMode) {
       return
     }
+    // locate the widget container element to compute offsets
+    const el = (event.currentTarget as HTMLElement).closest(
+      `[data-widget-id="${widget.id}"]`,
+    ) as HTMLElement | null
 
-    const rect = event.currentTarget.getBoundingClientRect()
+    const rect = el ? el.getBoundingClientRect() : { left: 0, top: 0 }
 
     setDragState({
       id: widget.id,
       offsetX: event.clientX - rect.left,
       offsetY: event.clientY - rect.top,
+    })
+  }
+
+  const beginResize = (event: ReactMouseEvent<HTMLDivElement>, widget: Widget) => {
+    if (!editMode) return
+    event.stopPropagation()
+    setResizeState({
+      id: widget.id,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: widget.width,
+      startHeight: widget.height,
     })
   }
 
@@ -121,6 +163,58 @@ function App() {
       window.removeEventListener('mouseup', handleMouseUp)
     }
   }, [dragState, editMode])
+
+  useEffect(() => {
+    if (!resizeState || !editMode) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const handleMouseMove = (event: MouseEvent) => {
+      setWidgets((prev) =>
+        prev.map((w) => {
+          if (w.id !== resizeState.id) return w
+
+          const dx = event.clientX - resizeState.startX
+          const dy = event.clientY - resizeState.startY
+          const canvasRect = canvas.getBoundingClientRect()
+
+          const minW = 160
+          const minH = 100
+          const maxW = Math.max(200, canvasRect.width - w.x)
+          const maxH = Math.max(120, canvasRect.height - w.y)
+
+          const newW = Math.min(Math.max(resizeState.startWidth + dx, minW), maxW)
+          const newH = Math.min(Math.max(resizeState.startHeight + dy, minH), maxH)
+
+          return { ...w, width: newW, height: newH }
+        }),
+      )
+    }
+
+    const handleMouseUp = () => setResizeState(null)
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [resizeState, editMode])
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (openMenuId) {
+        const target = event.target as HTMLElement
+        const menuElement = document.querySelector(`[data-widget-id="${openMenuId}"]`)
+        if (menuElement && !menuElement.contains(target)) {
+          setOpenMenuId(null)
+        }
+      }
+    }
+    window.addEventListener('click', handleClickOutside)
+    return () => window.removeEventListener('click', handleClickOutside)
+  }, [openMenuId])
 
   const renderWidgetBody = (type: string) => {
     if (type === 'Clock') {
@@ -172,9 +266,9 @@ function App() {
     }
 
     return (
-      <div className="space-y-2">
-        <p className="text-sm text-slate-200">Shortcut panel</p>
-        <p className="text-xs text-slate-400">Pinned app shortcuts will appear here</p>
+      <div className="space-y-2 text-slate-200">
+        <div className="h-10 border border-white/10 bg-white/5" />
+        <div className="h-10 border border-white/10 bg-white/5" />
       </div>
     )
   }
@@ -198,9 +292,9 @@ function App() {
           {widgets.map((widget) => (
             <div
               key={widget.id}
-              onMouseDown={(event) => beginDrag(event, widget)}
-              className={`absolute border border-cyan-300/35 bg-black/45 p-4 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition-colors ${
-                editMode ? 'cursor-move' : 'cursor-default'
+              data-widget-id={widget.id}
+              className={`absolute border border-cyan-300/35 bg-black/45 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition-colors ${
+                editMode ? 'cursor-default' : 'cursor-default'
               }`}
               style={{
                 left: `${widget.x}px`,
@@ -209,24 +303,98 @@ function App() {
                 height: `${widget.height}px`,
               }}
             >
-              <div className="mb-3 flex items-center justify-between border-b border-white/10 pb-2">
-                <span className="text-sm font-semibold text-cyan-100">{widget.type}</span>
-                {editMode ? (
-                  <div className="flex items-center gap-2">
-                    <GripVertical className="size-4 text-slate-400" aria-hidden="true" />
-                    <button
-                      onClick={() => removeWidget(widget.id)}
-                      className="text-slate-400 transition-colors hover:text-red-400"
-                      title="Remove widget"
-                    >
-                      <X className="size-4" aria-hidden="true" />
-                    </button>
-                  </div>
-                ) : (
-                  <span className="text-[11px] text-slate-400">Widget</span>
-                )}
+              {/* Top menu button (on top border) */}
+              {editMode && (
+                <div className="absolute right-2 top-0 z-40 -translate-y-1/2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setOpenMenuId((current) => (current === widget.id ? null : widget.id))
+                    }}
+                    className="flex h-6 w-6 cursor-pointer items-center justify-center border border-white/10 bg-black/90 text-slate-300 hover:text-white"
+                    title="Widget menu"
+                  >
+                    {openMenuId === widget.id ? (
+                      <svg className="size-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    ) : (
+                      <MoreVertical className="size-4" aria-hidden="true" />
+                    )}
+                  </button>
+
+                  {openMenuId === widget.id && (
+                    <div className="absolute top-full right-0 w-36 border border-white/10 bg-black/90 p-1 z-50">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenMenuId(null)
+                        }}
+                        className="block w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-white/5"
+                      >
+                        Settings
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setOpenMenuId(null)
+                        }}
+                        className="block w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-white/5"
+                      >
+                        Style
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          duplicateWidget(widget.id)
+                        }}
+                        className="block w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-white/5"
+                      >
+                        Duplicate
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          removeWidget(widget.id)
+                          setOpenMenuId(null)
+                        }}
+                        className="block w-full text-left px-3 py-2 text-sm text-rose-400 hover:bg-white/5"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Right-side drag button */}
+              {editMode && (
+                <div className="absolute right-0 top-1/2 z-30 -translate-y-1/2 translate-x-1/2">
+                  <button
+                    onMouseDown={(e) => beginDrag(e as ReactMouseEvent<HTMLElement>, widget)}
+                    className="flex h-7 w-7 cursor-grab items-center justify-center border border-white/10 bg-black/90 text-slate-400 hover:text-white active:cursor-grabbing"
+                    title="Drag widget"
+                  >
+                    <GripVertical className="size-4" aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+
+              {/* Content area with scroll */}
+              <div className="absolute inset-0 overflow-auto px-4 py-4">
+                {renderWidgetBody(widget.type)}
               </div>
-              {renderWidgetBody(widget.type)}
+
+              {/* Resizer (bottom-right) - styled as small corner square with inner square */}
+              {editMode && (
+                <div
+                  onMouseDown={(e) => beginResize(e as ReactMouseEvent<HTMLDivElement>, widget)}
+                  className="absolute bottom-0 right-0 z-50 flex h-5 w-5 cursor-se-resize translate-x-1/2 translate-y-1/2 items-center justify-center"
+                  title="Resize"
+                >
+                  <div className="h-3 w-3 border border-l-0 border-t-0 border-white/20 bg-black/10" />
+                </div>
+              )}
             </div>
           ))}
 
