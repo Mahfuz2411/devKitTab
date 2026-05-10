@@ -2,17 +2,13 @@ import { Plus, Settings, Wand2, Info, GripVertical, MoreVertical } from 'lucide-
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { SidebarButton } from '@/components/SidebarButton'
-
-const widgetOptions = ['Shortcut', 'Calender', 'Weather', 'Todos', 'Search', 'Clock']
-
-const widgetSizeByType: Record<string, { width: number; height: number }> = {
-  Shortcut: { width: 320, height: 160 },
-  Calender: { width: 320, height: 220 },
-  Weather: { width: 280, height: 210 },
-  Todos: { width: 320, height: 220 },
-  Search: { width: 320, height: 150 },
-  Clock: { width: 260, height: 170 },
-}
+import ClockWidget from '@/widgets/ClockWidget'
+import WeatherWidget from '@/widgets/WeatherWidget'
+import SearchWidget from '@/widgets/SearchWidget'
+import TodosWidget from '@/widgets/TodosWidget'
+import CalendarWidget from '@/widgets/CalendarWidget'
+import ShortcutWidget from '@/widgets/ShortcutWidget'
+import { widgetOptions, widgetSizeByType } from '@/lib/widgets'
 
 interface Widget {
   id: string
@@ -179,10 +175,19 @@ function App() {
           const dy = event.clientY - resizeState.startY
           const canvasRect = canvas.getBoundingClientRect()
 
-          const minW = 160
-          const minH = 100
-          const maxW = Math.max(200, canvasRect.width - w.x)
-          const maxH = Math.max(120, canvasRect.height - w.y)
+          const config = widgetSizeByType[w.type] ?? {
+            width: 280,
+            height: 180,
+            minWidth: 160,
+            minHeight: 100,
+            maxWidth: 600,
+            maxHeight: 400,
+          }
+
+          const minW = config.minWidth
+          const minH = config.minHeight
+          const maxW = Math.min(config.maxWidth, Math.max(200, canvasRect.width - w.x))
+          const maxH = Math.min(config.maxHeight, Math.max(120, canvasRect.height - w.y))
 
           const newW = Math.min(Math.max(resizeState.startWidth + dx, minW), maxW)
           const newH = Math.min(Math.max(resizeState.startHeight + dy, minH), maxH)
@@ -203,6 +208,18 @@ function App() {
   }, [resizeState, editMode])
 
   useEffect(() => {
+    const previousUserSelect = document.body.style.userSelect
+
+    if (dragState || resizeState) {
+      document.body.style.userSelect = 'none'
+    }
+
+    return () => {
+      document.body.style.userSelect = previousUserSelect
+    }
+  }, [dragState, resizeState])
+
+  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (openMenuId) {
         const target = event.target as HTMLElement
@@ -217,53 +234,17 @@ function App() {
   }, [openMenuId])
 
   const renderWidgetBody = (type: string) => {
-    if (type === 'Clock') {
-      return (
-        <div className="space-y-2">
-          <p className="text-5xl font-bold leading-none text-cyan-100">21:29</p>
-          <p className="text-sm text-cyan-200/80">Sat, May 9</p>
-        </div>
-      )
+    const map: Record<string, React.FC> = {
+      Clock: ClockWidget,
+      Weather: WeatherWidget,
+      Search: SearchWidget,
+      Todos: TodosWidget,
+      Calender: CalendarWidget,
+      Shortcut: ShortcutWidget,
     }
 
-    if (type === 'Weather') {
-      return (
-        <div className="space-y-2">
-          <p className="text-5xl font-bold leading-none text-cyan-100">17C</p>
-          <p className="text-sm text-cyan-200/80">Cloudy • New York</p>
-        </div>
-      )
-    }
-
-    if (type === 'Search') {
-      return (
-        <div className="space-y-3">
-          <div className="border border-cyan-200/30 bg-black/30 px-3 py-2 text-sm text-cyan-100">
-            Search Google
-          </div>
-          <p className="text-xs text-slate-300">Quick search widget</p>
-        </div>
-      )
-    }
-
-    if (type === 'Todos') {
-      return (
-        <div className="space-y-2 text-sm text-slate-200">
-          <p>1. Prepare meeting notes</p>
-          <p>2. Check extension QA</p>
-          <p>3. Push next release</p>
-        </div>
-      )
-    }
-
-    if (type === 'Calender') {
-      return (
-        <div className="space-y-2">
-          <p className="text-lg font-semibold text-cyan-100">May, 2026</p>
-          <p className="text-sm text-slate-300">Calendar preview widget</p>
-        </div>
-      )
-    }
+    const C = map[type]
+    if (C) return <C />
 
     return (
       <div className="space-y-2 text-slate-200">
@@ -293,7 +274,7 @@ function App() {
             <div
               key={widget.id}
               data-widget-id={widget.id}
-              className={`absolute border border-cyan-300/35 bg-black/45 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition-colors ${
+              className={`absolute select-none border border-cyan-300/35 bg-black/45 shadow-[0_0_24px_rgba(34,211,238,0.18)] transition-colors ${
                 editMode ? 'cursor-default' : 'cursor-default'
               }`}
               style={{
@@ -380,15 +361,19 @@ function App() {
                 </div>
               )}
 
-              {/* Content area with scroll */}
-              <div className="absolute inset-0 overflow-auto px-4 py-4">
+              {/* Content area - shows scroll when content overflows */}
+              <div className="absolute inset-0 h-full w-full overflow-auto px-4 py-4">
                 {renderWidgetBody(widget.type)}
               </div>
 
               {/* Resizer (bottom-right) - styled as small corner square with inner square */}
               {editMode && (
                 <div
-                  onMouseDown={(e) => beginResize(e as ReactMouseEvent<HTMLDivElement>, widget)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    beginResize(e as ReactMouseEvent<HTMLDivElement>, widget)
+                  }}
                   className="absolute bottom-0 right-0 z-50 flex h-5 w-5 cursor-se-resize translate-x-1/2 translate-y-1/2 items-center justify-center"
                   title="Resize"
                 >

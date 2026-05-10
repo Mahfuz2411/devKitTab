@@ -133,3 +133,27 @@
     @apply font-sans;
     }
 }
+
+/* Custom scrollbar styling for widget content */
+div[class*="overflow-auto"] {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(34, 211, 238, 0.4) rgba(0, 0, 0, 0.2);
+  scrollbar-gutter: stable;
+}
+
+div[class*="overflow-auto"]::-webkit-scrollbar {
+  width: 6px;
+}
+
+div[class*="overflow-auto"]::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+div[class*="overflow-auto"]::-webkit-scrollbar-thumb {
+  background: rgba(34, 211, 238, 0.4);
+  border-radius: 0;
+}
+
+div[class*="overflow-auto"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 211, 238, 0.6);
+}
